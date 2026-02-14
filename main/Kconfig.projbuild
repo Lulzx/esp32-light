@@ -13,3 +13,13 @@ menu "WiFi Configuration"
             WiFi network password.
 
 endmenu
+
+menu "Telegram Bot"
+
+    config TELEGRAM_BOT_TOKEN
+        string "Bot Token"
+        default "your_bot_token"
+        help
+            Telegram bot token from @BotFather.
+
+endmenu
