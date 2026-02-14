@@ -6,6 +6,7 @@
 #include "esp_crt_bundle.h"
 #include "nvs_flash.h"
 #include "driver/gpio.h"
+#include "driver/touch_pad.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_netif.h"
@@ -15,6 +16,8 @@
 #include <stdio.h>
 
 #define LED_PIN    GPIO_NUM_2
+#define TOUCH_PAD  TOUCH_PAD_NUM0  // GPIO 4
+#define TOUCH_THRESHOLD 400
 #define WIFI_SSID  CONFIG_WIFI_SSID
 #define WIFI_PASS  CONFIG_WIFI_PASSWORD
 #define BOT_TOKEN  CONFIG_TELEGRAM_BOT_TOKEN
@@ -249,6 +252,40 @@ static void telegram_task(void *arg)
     }
 }
 
+/* ── Touch Sensing ──────────────────────────────────────── */
+
+static void touch_task(void *arg)
+{
+    touch_pad_init();
+    touch_pad_set_fsm_mode(TOUCH_FSM_MODE_TIMER);
+    touch_pad_config(TOUCH_PAD, 0);
+    touch_pad_filter_start(10);
+
+    // Calibrate: read baseline value
+    uint16_t baseline = 0;
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    touch_pad_read_filtered(TOUCH_PAD, &baseline);
+    ESP_LOGI(TAG, "Touch baseline: %d (threshold: %d)", baseline, TOUCH_THRESHOLD);
+
+    bool was_touched = false;
+
+    while (1) {
+        uint16_t val = 0;
+        touch_pad_read_filtered(TOUCH_PAD, &val);
+
+        // Touch lowers the value below threshold
+        bool touched = val < TOUCH_THRESHOLD;
+
+        if (touched && !was_touched) {
+            set_led(!led_state);
+            ESP_LOGI(TAG, "Touch! LED %s (val=%d)", led_state ? "ON" : "OFF", val);
+        }
+        was_touched = touched;
+
+        vTaskDelay(50 / portTICK_PERIOD_MS);
+    }
+}
+
 /* ── WiFi ───────────────────────────────────────────────── */
 
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
@@ -302,4 +339,5 @@ void app_main(void)
     mdns_service_add("ESP32-WebServer", "_http", "_tcp", 80, NULL, 0);
 
     xTaskCreate(telegram_task, "telegram", 8192, NULL, 5, NULL);
+    xTaskCreate(touch_task, "touch", 2048, NULL, 10, NULL);
 }
